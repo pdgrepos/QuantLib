@@ -6,6 +6,7 @@
  Copyright (C) 2003, 2004, 2005, 2006 StatPro Italia srl
  Copyright (C) 2017 Peter Caspers
  Copyright (C) 2017 Oleg Kulkov
+ Copyright (C) 2023 Skandinaviska Enskilda Banken AB (publ)
 
  This file is part of QuantLib, a free-software/open-source library
  for financial quantitative analysts and developers - http://quantlib.org/
@@ -35,7 +36,7 @@ namespace QuantLib {
                 // third Monday in February
                 return (d >= 15 && d <= 21) && w == Monday && m == February;
             } else {
-                // February 22nd, possily adjusted
+                // February 22nd, possibly adjusted
                 return (d == 22 || (d == 23 && w == Monday)
                         || (d == 21 && w == Friday)) && m == February;
             }
@@ -73,7 +74,7 @@ namespace QuantLib {
                 return (d >= 22 && d <= 28) && w == Monday && m == October;
             }
         }
-     
+
         bool isVeteransDayNoSaturday(Day d, Month m, Year y, Weekday w) {
             if (y <= 1970 || y >= 1978) {
                 // November 11th, adjusted, but no Saturday to Friday
@@ -83,23 +84,24 @@ namespace QuantLib {
                 return (d >= 22 && d <= 28) && w == Monday && m == October;
             }
         }
+
+        bool isJuneteenth(Day d, Month m, Year y, Weekday w, bool moveToFriday = true) {
+            // declared in 2021, but only observed by exchanges since 2022
+            return (d == 19 || (d == 20 && w == Monday) || ((d == 18 && w == Friday) && moveToFriday))
+                && m == June && y >= 2022;
+        }
     }
-    
+
     UnitedStates::UnitedStates(UnitedStates::Market market) {
-        // all calendar instances on the same market share the same
-        // implementation instance
-        static ext::shared_ptr<Calendar::Impl> settlementImpl(
-                                        new UnitedStates::SettlementImpl);
-        static ext::shared_ptr<Calendar::Impl> liborImpactImpl(
-                                        new UnitedStates::LiborImpactImpl);
-        static ext::shared_ptr<Calendar::Impl> nyseImpl(
-                                        new UnitedStates::NyseImpl);
-        static ext::shared_ptr<Calendar::Impl> governmentImpl(
-                                        new UnitedStates::GovernmentBondImpl);
-        static ext::shared_ptr<Calendar::Impl> nercImpl(
-                                        new UnitedStates::NercImpl);
-        static ext::shared_ptr<Calendar::Impl> federalreserveImpl(
-                                        new UnitedStates::FederalReserveImpl);
+        // all calendar instances on the same market share the same implementation instance
+        static auto settlementImpl = ext::make_shared<UnitedStates::SettlementImpl>();
+        static auto liborImpactImpl = ext::make_shared<UnitedStates::LiborImpactImpl>();
+        static auto nyseImpl = ext::make_shared<UnitedStates::NyseImpl>();
+        static auto governmentImpl = ext::make_shared<UnitedStates::GovernmentBondImpl>();
+        static auto nercImpl = ext::make_shared<UnitedStates::NercImpl>();
+        static auto federalReserveImpl = ext::make_shared<UnitedStates::FederalReserveImpl>();
+        static auto sofrImpl = ext::make_shared<UnitedStates::SofrImpl>();
+
         switch (market) {
           case Settlement:
             impl_ = settlementImpl;
@@ -113,11 +115,14 @@ namespace QuantLib {
           case GovernmentBond:
             impl_ = governmentImpl;
             break;
+          case SOFR:
+            impl_ = sofrImpl;
+            break;
           case NERC:
             impl_ = nercImpl;
             break;
           case FederalReserve:
-            impl_ = federalreserveImpl;
+            impl_ = federalReserveImpl;
             break;
           default:
             QL_FAIL("unknown market");
@@ -133,6 +138,8 @@ namespace QuantLib {
         if (isWeekend(w)
             // New Year's Day (possibly moved to Monday if on Sunday)
             || ((d == 1 || (d == 2 && w == Monday)) && m == January)
+            // (or to Friday if on Saturday)
+            || (d == 31 && w == Friday && m == December)
             // Martin Luther King's birthday (third Monday in January)
             || ((d >= 15 && d <= 21) && w == Monday && m == January
                 && y >= 1983)
@@ -140,6 +147,8 @@ namespace QuantLib {
             || isWashingtonBirthday(d, m, y, w)
             // Memorial Day (last Monday in May)
             || isMemorialDay(d, m, y, w)
+            // Juneteenth (Monday if Sunday or Friday if Saturday)
+            || isJuneteenth(d, m, y, w)
             // Independence Day (Monday if Sunday or Friday if Saturday)
             || ((d == 4 || (d == 5 && w == Monday) ||
                  (d == 3 && w == Friday)) && m == July)
@@ -186,6 +195,8 @@ namespace QuantLib {
             || (dd == em-3)
             // Memorial Day (last Monday in May)
             || isMemorialDay(d, m, y, w)
+            // Juneteenth (Monday if Sunday or Friday if Saturday)
+            || isJuneteenth(d, m, y, w)
             // Independence Day (Monday if Sunday or Friday if Saturday)
             || ((d == 4 || (d == 5 && w == Monday) ||
                  (d == 3 && w == Friday)) && m == July)
@@ -208,8 +219,10 @@ namespace QuantLib {
             return false;
 
         // Special closings
-        if (// Hurricane Sandy
-            (y == 2012 && m == October && (d == 29 || d == 30))
+        if (// President Bush's Funeral
+            (y == 2018 && m == December && d == 5)
+            // Hurricane Sandy
+            || (y == 2012 && m == October && (d == 29 || d == 30))
             // President Ford's funeral
             || (y == 2007 && m == January && d == 2)
             // President Reagan's funeral
@@ -268,10 +281,13 @@ namespace QuantLib {
                 && y >= 1983)
             // Washington's birthday (third Monday in February)
             || isWashingtonBirthday(d, m, y, w)
-            // Good Friday
-            || (dd == em-3)
+            // Good Friday (2015, 2021, 2023 are half day due to NFP/SIFMA;
+            // see <https://www.sifma.org/resources/general/holiday-schedule/>)
+            || (dd == em-3 && y != 2015 && y != 2021 && y != 2023)
             // Memorial Day (last Monday in May)
             || isMemorialDay(d, m, y, w)
+            // Juneteenth (Monday if Sunday or Friday if Saturday)
+            || isJuneteenth(d, m, y, w)
             // Independence Day (Monday if Sunday or Friday if Saturday)
             || ((d == 4 || (d == 5 && w == Monday) ||
                  (d == 3 && w == Friday)) && m == July)
@@ -287,7 +303,32 @@ namespace QuantLib {
             || ((d == 25 || (d == 26 && w == Monday) ||
                  (d == 24 && w == Friday)) && m == December))
             return false;
+
+        // Special closings
+        if (// President Bush's Funeral
+            (y == 2018 && m == December && d == 5)
+            // Hurricane Sandy
+            || (y == 2012 && m == October && (d == 30))
+            // President Reagan's funeral
+            || (y == 2004 && m == June && d == 11)
+            ) return false;
+
         return true;
+    }
+
+
+    bool UnitedStates::SofrImpl::isBusinessDay(const Date& date) const {
+        // so far (that is, up to 2023 at the time of this change) SOFR never fixed
+        // on Good Friday.  We're extrapolating that pattern.  This might change if
+        // a fixing on Good Friday occurs in future years.
+        const Day dY = date.dayOfYear();
+        const Year y = date.year();
+
+        // Good Friday
+        if (dY == (easterMonday(y) - 3))
+            return false;
+
+        return GovernmentBondImpl::isBusinessDay(date);
     }
 
 
@@ -312,10 +353,10 @@ namespace QuantLib {
             return false;
         return true;
     }
- 
- 
+
+
     bool UnitedStates::FederalReserveImpl::isBusinessDay(const Date& date) const {
-        // see https://www.frbservices.org/holidayschedules/ for details
+        // see https://www.frbservices.org/about/holiday-schedules for details
         Weekday w = date.weekday();
         Day d = date.dayOfMonth();
         Month m = date.month();
@@ -330,6 +371,8 @@ namespace QuantLib {
             || isWashingtonBirthday(d, m, y, w)
             // Memorial Day (last Monday in May)
             || isMemorialDay(d, m, y, w)
+            // Juneteenth (Monday if Sunday)
+            || isJuneteenth(d, m, y, w, false)
             // Independence Day (Monday if Sunday)
             || ((d == 4 || (d == 5 && w == Monday)) && m == July)
             // Labor Day (first Monday in September)
